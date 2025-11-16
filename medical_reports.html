@@ -563,10 +563,10 @@
         </a>
       </div>
       <div>
-        <button class="btn btn-outline-light btn-sm" style="border-radius: 20px;">
-          <i class="bi bi-person-circle"></i> Profile
-        </button>
-      </div>
+  <a href="profile.html" class="btn btn-outline-light btn-sm" style="border-radius: 20px; text-decoration: none;">
+    <i class="bi bi-person-circle"></i> <span id="navUsername">Profile</span>
+  </a>
+</div>
     </div>
   </nav>
 
@@ -592,9 +592,9 @@
       Medical Reports
     </a>
   </li>
-  <li class="menu-item" data-page="settings.html">
-    <a href="settings.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; width: 100%;">
-      Settings
+  <li class="menu-item" data-page="medical_reports.html">
+    <a href="medical_reports.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; width: 100%;">
+      Help & Support
     </a>
   </li>
 </ul>
@@ -687,179 +687,16 @@
     <small>Always consult a healthcare professional for medical advice.</small>
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script>
-    let medicalReports = [];
-    let selectedFile = null;
-    let selectedFileData = null;
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-    const uploadArea = document.getElementById('uploadArea');
-    const fileInput = document.getElementById('fileInput');
-    const previewSection = document.getElementById('previewSection');
-    const previewImage = document.getElementById('previewImage');
-    const previewClose = document.getElementById('previewClose');
-    const uploadForm = document.getElementById('uploadForm');
-    const uploadBtn = document.getElementById('uploadBtn');
-    const reportTitle = document.getElementById('reportTitle');
-    const reportNotes = document.getElementById('reportNotes');
-    const reportsGrid = document.getElementById('reportsGrid');
-    const reportCount = document.getElementById('reportCount');
-    const viewModal = document.getElementById('viewModal');
-    const modalClose = document.getElementById('modalClose');
-    const modalTitle = document.getElementById('modalTitle');
-    const modalImage = document.getElementById('modalImage');
-    const modalDate = document.getElementById('modalDate');
-    const modalNotes = document.getElementById('modalNotes');
-    const modalNotesRow = document.getElementById('modalNotesRow');
+<!-- Firebase SDK (Add these) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
-    uploadArea.addEventListener('click', () => fileInput.click());
+<!-- Firebase Configuration (Add this) -->
+<script src="firebase-config.js"></script>
 
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => {
-      uploadArea.addEventListener(e, ev => { ev.preventDefault(); ev.stopPropagation(); }, false);
-    });
-
-    ['dragenter', 'dragover'].forEach(e => {
-      uploadArea.addEventListener(e, () => uploadArea.classList.add('dragover'), false);
-    });
-
-    ['dragleave', 'drop'].forEach(e => {
-      uploadArea.addEventListener(e, () => uploadArea.classList.remove('dragover'), false);
-    });
-
-    uploadArea.addEventListener('drop', e => {
-      const files = e.dataTransfer.files;
-      if (files.length > 0) handleFile(files[0]);
-    });
-
-    fileInput.addEventListener('change', e => {
-      if (e.target.files.length > 0) handleFile(e.target.files[0]);
-    });
-
-    function handleFile(file) {
-      if (!file.type.match('image/(png|jpeg|jpg)')) {
-        alert('Please upload a PNG or JPG image.');
-        return;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        alert('File size must be less than 10MB.');
-        return;
-      }
-      selectedFile = file;
-      const reader = new FileReader();
-      reader.onload = e => {
-        selectedFileData = e.target.result;
-        previewImage.src = selectedFileData;
-        previewSection.style.display = 'block';
-        validateForm();
-      };
-      reader.readAsDataURL(file);
-    }
-
-    previewClose.addEventListener('click', () => {
-      selectedFile = null;
-      selectedFileData = null;
-      previewSection.style.display = 'none';
-      fileInput.value = '';
-      validateForm();
-    });
-
-    function validateForm() {
-      uploadBtn.disabled = !(selectedFile && reportTitle.value.trim());
-    }
-
-    reportTitle.addEventListener('input', validateForm);
-
-    uploadForm.addEventListener('submit', e => {
-      e.preventDefault();
-      const report = {
-        id: Date.now(),
-        title: reportTitle.value.trim(),
-        notes: reportNotes.value.trim(),
-        image: selectedFileData,
-        fileName: selectedFile.name,
-        uploadDate: new Date().toLocaleString(),
-        timestamp: Date.now()
-      };
-      medicalReports.unshift(report);
-      renderReports();
-      uploadForm.reset();
-      selectedFile = null;
-      selectedFileData = null;
-      previewSection.style.display = 'none';
-      uploadBtn.disabled = true;
-      const originalText = uploadBtn.innerHTML;
-      uploadBtn.innerHTML = '<i class="bi bi-check-circle-fill"></i> Uploaded!';
-      uploadBtn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-      setTimeout(() => {
-        uploadBtn.innerHTML = originalText;
-        uploadBtn.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-      }, 2000);
-    });
-
-    function renderReports() {
-      if (medicalReports.length === 0) {
-        reportsGrid.innerHTML = `<div class="empty-state"><i class="bi bi-folder-x"></i><p>No reports uploaded yet. Start by uploading your first medical report above!</p></div>`;
-        reportCount.textContent = '0 reports';
-        return;
-      }
-      reportCount.textContent = `${medicalReports.length} ${medicalReports.length === 1 ? 'report' : 'reports'}`;
-      reportsGrid.innerHTML = medicalReports.map(r => `
-        <div class="report-card">
-          <div class="report-image-container" onclick="viewReport(${r.id})">
-            <img src="${r.image}" alt="${r.title}" class="report-image" />
-          </div>
-          <div class="report-info">
-            <div class="report-title">${r.title}</div>
-            <div class="report-meta">
-              <span><i class="bi bi-calendar3"></i> ${r.uploadDate}</span>
-            </div>
-            <div class="report-actions">
-              <button class="btn-action" onclick="viewReport(${r.id})">
-                <i class="bi bi-eye"></i> View
-              </button>
-              <button class="btn-action delete" onclick="deleteReport(${r.id})">
-                <i class="bi bi-trash"></i> Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      `).join('');
-    }
-
-    function viewReport(id) {
-      const report = medicalReports.find(r => r.id === id);
-      if (!report) return;
-      modalTitle.textContent = report.title;
-      modalImage.src = report.image;
-      modalDate.textContent = report.uploadDate;
-      if (report.notes) {
-        modalNotes.textContent = report.notes;
-        modalNotesRow.style.display = 'flex';
-      } else {
-        modalNotesRow.style.display = 'none';
-      }
-      viewModal.style.display = 'flex';
-    }
-
-    function deleteReport(id) {
-      if (confirm('Are you sure you want to delete this report?')) {
-        medicalReports = medicalReports.filter(r => r.id !== id);
-        renderReports();
-      }
-    }
-
-    modalClose.addEventListener('click', () => {
-      viewModal.style.display = 'none';
-    });
-
-    viewModal.addEventListener('click', e => {
-      if (e.target === viewModal) {
-        viewModal.style.display = 'none';
-      }
-    });
-
-    renderReports();
-
-   </script>
+<!-- Your app.js -->
+<script src="app.js"></script>
 </body>
 </html>

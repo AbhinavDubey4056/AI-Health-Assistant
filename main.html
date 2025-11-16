@@ -408,10 +408,10 @@
       </div>
 
       <div>
-        <button class="btn btn-outline-light btn-sm" style="border-radius: 20px;">
-          <i class="bi bi-person-circle"></i> Profile
-        </button>
-      </div>
+  <a href="profile.html" class="btn btn-outline-light btn-sm" style="border-radius: 20px; text-decoration: none;">
+    <i class="bi bi-person-circle"></i> <span id="navUsername">Profile</span>
+  </a>
+</div>
     </div>
   </nav>
 
@@ -438,11 +438,12 @@
       Medical Reports
     </a>
   </li>
-  <li class="menu-item" data-page="settings.html">
-    <a href="settings.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; width: 100%;">
-      Settings
+  <li class="menu-item" data-page="medical_reports.html">
+    <a href="medical_reports.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; width: 100%;">
+      Help & Support
     </a>
   </li>
+  
 </ul>
     </div>
   </div>
@@ -487,264 +488,16 @@
     <small>Always consult a healthcare professional for medical advice.</small>
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <script>
-    // ---------- Symptoms array ----------
-    const SYMPTOMS = [
-      "Fever",
-      "Cough (Dry)",
-      "Cough (Productive)",
-      "Sore Throat",
-      "Runny Nose",
-      "Nasal Congestion",
-      "Sneezing",
-      "Headache (General)",
-      "Headache (Throbbing)",
-      "Body Aches",
-      "Fatigue",
-      "Chills",
-      "Shortness of Breath",
-      "Chest Pain (Sharp)",
-      "Chest Tightness",
-      "Nausea",
-      "Vomiting",
-      "Diarrhea",
-      "Abdominal Pain (General)",
-      "Abdominal Pain (Lower Right)",
-      "Loss of Appetite",
-      "Loss of Smell/Taste",
-      "Dizziness",
-      "Rash",
-      "Itching",
-      "Eye Redness",
-      "Ear Pain"
-    ];
+<!-- Firebase SDK (Add these) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
-    // ---------- State ----------
-    let selectedSymptoms = new Set();
+<!-- Firebase Configuration (Add this) -->
+<script src="firebase-config.js"></script>
 
-    // ---------- DOM ----------
-    const dropdownPanel = document.getElementById("dropdownPanel");
-    const selectedContainer = document.getElementById("selectedContainer");
-    const symptomSearch = document.getElementById("symptomSearch");
-    const multiselectRoot = document.getElementById("multiselectRoot");
-    const predictBtn = document.getElementById("predictBtn");
-    const loadingSpinner = document.getElementById("loadingSpinner");
-    const resultSection = document.getElementById("resultSection");
-
-    // ---------- Render dropdown items ----------
-    function renderDropdown(filter = "") {
-      dropdownPanel.innerHTML = "";
-      const q = filter.trim().toLowerCase();
-      const items = SYMPTOMS.filter(s => s.toLowerCase().includes(q));
-      
-      if (items.length === 0) {
-        dropdownPanel.innerHTML = '<div style="padding:12px; text-align:center; color:#64748b;">No symptoms found</div>';
-        dropdownPanel.style.display = "block";
-        return;
-      }
-      
-      items.forEach(sym => {
-        const div = document.createElement("div");
-        div.className = "symptom-item";
-        div.tabIndex = 0;
-        div.innerHTML = `
-          <input type="checkbox" ${selectedSymptoms.has(sym) ? "checked" : ""} style="width:18px;height:18px;" />
-          <div style="flex:1">${sym}</div>
-        `;
-        div.addEventListener("click", (e) => {
-          if (selectedSymptoms.has(sym)) selectedSymptoms.delete(sym);
-          else selectedSymptoms.add(sym);
-          updateSelectedUI();
-          renderDropdown(symptomSearch.value);
-        });
-        div.addEventListener("keydown", (e) => { if (e.key === "Enter") div.click(); });
-        dropdownPanel.appendChild(div);
-      });
-      dropdownPanel.style.display = "block";
-      dropdownPanel.setAttribute("aria-expanded", "true");
-    }
-
-    // ---------- Update "chips" ----------
-    function updateSelectedUI() {
-      selectedContainer.innerHTML = "";
-      if (selectedSymptoms.size === 0) {
-        const hint = document.createElement("span");
-        hint.className = "text-muted small";
-        hint.textContent = "Click to select symptoms";
-        selectedContainer.appendChild(hint);
-      } else {
-        selectedSymptoms.forEach(sym => {
-          const chip = document.createElement("div");
-          chip.className = "chip";
-          chip.innerHTML = `<span>${sym}</span><i class="bi bi-x-circle-fill" title="Remove"></i>`;
-          chip.querySelector("i").addEventListener("click", (e) => {
-            e.stopPropagation();
-            selectedSymptoms.delete(sym);
-            updateSelectedUI();
-            renderDropdown(symptomSearch.value);
-          });
-          selectedContainer.appendChild(chip);
-        });
-      }
-
-      predictBtn.disabled = selectedSymptoms.size === 0;
-    }
-
-    // ---------- Search handler ----------
-    symptomSearch.addEventListener("input", (e) => {
-      renderDropdown(e.target.value);
-    });
-
-    multiselectRoot.addEventListener("click", () => {
-      symptomSearch.focus();
-      renderDropdown(symptomSearch.value);
-    });
-
-    document.addEventListener("click", (e) => {
-      if (!multiselectRoot.contains(e.target)) {
-        dropdownPanel.style.display = "none";
-      }
-    });
-
-    multiselectRoot.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowDown") {
-        renderDropdown(symptomSearch.value);
-        e.preventDefault();
-      }
-    });
-
-    renderDropdown();
-    updateSelectedUI();
-
-    // ---------- Render results ----------
-    function renderResults(data) {
-      resultSection.innerHTML = "";
-
-      const mainCard = document.createElement("div");
-      mainCard.className = "result-card";
-
-      const titleRow = document.createElement("div");
-      titleRow.className = "d-flex align-items-center justify-content-between mb-3";
-      titleRow.innerHTML = `
-        <div>
-          <div class="small text-muted">Predicted Condition</div>
-          <div style="font-size:1.4rem; font-weight:700; color:#60a5fa; margin-top:4px;">${data.prediction}</div>
-        </div>
-        <div class="text-end">
-          <div class="small text-muted">Confidence</div>
-          <div style="font-size:1.2rem; font-weight:600; color:#3b82f6; margin-top:4px;">${Math.round(data.top3[0].confidence)}%</div>
-        </div>
-      `;
-      mainCard.appendChild(titleRow);
-
-      const top3Div = document.createElement("div");
-      top3Div.style.marginTop = "1.5rem";
-      top3Div.innerHTML = `<div class="small text-muted mb-3" style="font-weight:600;">Top 3 Possibilities</div>`;
-      data.top3.forEach(item => {
-        const row = document.createElement("div");
-        row.style.marginBottom = "14px";
-        const percent = Math.round(item.confidence);
-        row.innerHTML = `
-          <div class="d-flex justify-content-between small mb-2">
-            <div style="font-weight:600; color:#cbd5e1;">${item.disease}</div>
-            <div style="color:#60a5fa; font-weight:600;">${percent}%</div>
-          </div>
-          <div class="progress">
-            <div class="progress-bar" role="progressbar" style="width:${percent}%" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"></div>
-          </div>
-        `;
-        top3Div.appendChild(row);
-      });
-      mainCard.appendChild(top3Div);
-
-      const shapDiv = document.createElement("div");
-      shapDiv.style.marginTop = "1.5rem";
-      shapDiv.innerHTML = `<div class="small text-muted mb-3" style="font-weight:600;">Contributing Symptoms (SHAP Analysis)</div>`;
-
-      const list = document.createElement("div");
-      list.className = "shap-list";
-
-      data.shap.forEach(item => {
-        const row = document.createElement("div");
-        row.className = "shap-row";
-        const val = Number(item.value);
-        const absVal = Math.abs(val);
-        row.innerHTML = `
-          <div style="width:40%; font-size:0.92rem; color:#cbd5e1;">${item.symptom}</div>
-          <div style="width:60%; display:flex; align-items:center; gap:10px;">
-            <div style="flex:1; display:flex; align-items:center;">
-              <div class="shap-bar" style="position:relative;">
-                <div style="position:absolute; left:50%; top:0; bottom:0; width:1px; background:rgba(59, 130, 246, 0.3)"></div>
-                <div style="position:absolute; ${val < 0 ? 'right:50%' : 'left:50%'}; top:0; bottom:0; height:100%; width:${Math.min(absVal*200, 100)}%; background:${val < 0 ? 'linear-gradient(90deg, #ef4444, #dc2626)' : 'linear-gradient(90deg, #10b981, #059669)'}; border-radius:8px;"></div>
-              </div>
-            </div>
-            <div style="min-width:60px; text-align:right; font-size:0.88rem; color:#94a3b8; font-family:monospace;">${val.toFixed(4)}</div>
-          </div>
-        `;
-        list.appendChild(row);
-      });
-
-      shapDiv.appendChild(list);
-      mainCard.appendChild(shapDiv);
-
-      resultSection.appendChild(mainCard);
-      mainCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-
-    // ---------- Predict API call ----------
-    async function callPredict(symptomsArray) {
-      if (!Array.isArray(symptomsArray) || symptomsArray.length === 0) return;
-
-      loadingSpinner.classList.remove("d-none");
-      loadingSpinner.style.display = "flex";
-      predictBtn.disabled = true;
-
-      try {
-        const resp = await fetch("http://127.0.0.1:5000/predict", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ symptoms: symptomsArray })
-        });
-
-        if (!resp.ok) {
-          const txt = await resp.text();
-          throw new Error(`Server error: ${resp.status} ${txt}`);
-        }
-
-        const data = await resp.json();
-        renderResults(data);
-
-      } catch (err) {
-        resultSection.innerHTML = `
-          <div class="result-card">
-            <div class="d-flex align-items-center gap-2 mb-2">
-              <i class="bi bi-exclamation-triangle-fill" style="color:#ef4444; font-size:1.5rem;"></i>
-              <div class="small" style="color:#ef4444; font-weight:600;">Prediction Failed</div>
-            </div>
-            <div class="text-muted small">${err.message}</div>
-            <div class="text-muted small mt-2">Please ensure your server is running on http://127.0.0.1:5000</div>
-          </div>`;
-      } finally {
-        loadingSpinner.classList.add("d-none");
-        predictBtn.disabled = selectedSymptoms.size === 0;
-      }
-    }
-
-    // ---------- Predict button handler ----------
-    predictBtn.addEventListener("click", () => {
-      const arr = Array.from(selectedSymptoms);
-      callPredict(arr);
-    });
-
-    symptomSearch.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        if (selectedSymptoms.size > 0) callPredict(Array.from(selectedSymptoms));
-      }
-    });
-
-  </script>
+<!-- Your app.js -->
+<script src="app.js"></script>
 </body>
 </html>

@@ -462,10 +462,10 @@
       </div>
 
       <div>
-        <button class="btn btn-outline-light btn-sm" style="border-radius: 20px;">
-          <i class="bi bi-person-circle"></i> Profile
-        </button>
-      </div>
+  <a href="profile.html" class="btn btn-outline-light btn-sm" style="border-radius: 20px; text-decoration: none;">
+    <i class="bi bi-person-circle"></i> <span id="navUsername">Profile</span>
+  </a>
+</div>
     </div>
   </nav>
 
@@ -492,9 +492,9 @@
       Medical Reports
     </a>
   </li>
-  <li class="menu-item" data-page="settings.html">
-    <a href="settings.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; width: 100%;">
-      Settings
+  <li class="menu-item" data-page="medical_reports.html">
+    <a href="medical_reports.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; width: 100%;">
+      Help & Support
     </a>
   </li>
 </ul>
@@ -592,126 +592,14 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <script>
-    // Store entries in memory (will be replaced with database later)
-    let healthEntries = [];
+<!-- Firebase SDK (Add these) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
-    // DOM elements
-    const healthForm = document.getElementById('healthForm');
-    const trackerEntries = document.getElementById('trackerEntries');
-    const entryCount = document.getElementById('entryCount');
-    const entryDate = document.getElementById('entryDate');
+<!-- Firebase Configuration (Add this) -->
+<script src="firebase-config.js"></script>
 
-    // Set today's date as default
-    const today = new Date().toISOString().split('T')[0];
-    entryDate.value = today;
-
-    // Load entries from memory on page load
-    function loadEntries() {
-      renderEntries();
-    }
-
-    // Save entry
-    healthForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-
-      const entry = {
-        id: Date.now(),
-        date: document.getElementById('entryDate').value,
-        mood: document.getElementById('moodSelect').value,
-        sleep: document.getElementById('sleepQuality').value || 'Not specified',
-        water: document.getElementById('waterIntake').value || 'Not specified',
-        meals: document.getElementById('mealsInput').value || 'Not specified',
-        notes: document.getElementById('notesInput').value || 'No notes',
-        timestamp: new Date().toLocaleString()
-      };
-
-      healthEntries.unshift(entry);
-      renderEntries();
-      healthForm.reset();
-      entryDate.value = today;
-
-      // Show success feedback
-      const btn = healthForm.querySelector('.btn-submit');
-      const originalText = btn.innerHTML;
-      btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> Saved!';
-      btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-      
-      setTimeout(() => {
-        btn.innerHTML = originalText;
-        btn.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-      }, 2000);
-    });
-
-    // Delete entry
-    function deleteEntry(id) {
-      if (confirm('Are you sure you want to delete this entry?')) {
-        healthEntries = healthEntries.filter(entry => entry.id !== id);
-        renderEntries();
-      }
-    }
-
-    // Render all entries
-    function renderEntries() {
-      if (healthEntries.length === 0) {
-        trackerEntries.innerHTML = `
-          <div class="empty-state">
-            <i class="bi bi-inbox"></i>
-            <p>No entries yet. Start tracking your health by filling out the form above!</p>
-          </div>
-        `;
-        entryCount.textContent = '0 entries';
-        return;
-      }
-
-      entryCount.textContent = `${healthEntries.length} ${healthEntries.length === 1 ? 'entry' : 'entries'}`;
-
-      trackerEntries.innerHTML = healthEntries.map(entry => `
-        <div class="entry-card">
-          <div class="entry-header">
-            <div>
-              <div class="entry-date">
-                <i class="bi bi-calendar-check"></i>
-                ${new Date(entry.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-              </div>
-              <div class="entry-time">${entry.timestamp}</div>
-            </div>
-            <button class="delete-btn" onclick="deleteEntry(${entry.id})">
-              <i class="bi bi-trash"></i> Delete
-            </button>
-          </div>
-
-          <div class="entry-info">
-            <div class="info-item">
-              <div class="info-label">Mood</div>
-              <div class="info-value mood-emoji">${entry.mood}</div>
-            </div>
-            <div class="info-item">
-              <div class="info-label">Sleep Quality</div>
-              <div class="info-value">${entry.sleep}</div>
-            </div>
-            <div class="info-item">
-              <div class="info-label">Water Intake</div>
-              <div class="info-value">${entry.water}</div>
-            </div>
-            <div class="info-item">
-              <div class="info-label">Meals</div>
-              <div class="info-value">${entry.meals}</div>
-            </div>
-          </div>
-
-          ${entry.notes !== 'No notes' ? `
-            <div class="entry-notes">
-              <div class="notes-label">Notes & Observations</div>
-              <div class="notes-text">${entry.notes}</div>
-            </div>
-          ` : ''}
-        </div>
-      `).join('');
-    }
-
-    // Initialize
-    loadEntries();
-  </script>
+<!-- Your app.js -->
+<script src="app.js"></script>
 </body>
 </html>
