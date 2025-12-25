@@ -1,5 +1,5 @@
 // ============================================================================
-// HEALTH AI - UNIFIED JAVASCRIPT FILE WITH FIREBASE AUTHENTICATION
+// HEALTH AI - UNIFIED JAVASCRIPT FILE WITH FIREBASE & AWS S3
 // ============================================================================
 
 // ============================================================================
@@ -8,43 +8,30 @@
 
 const CONFIG = {
   API_BASE_URL: 'http://127.0.0.1:5000',
-  STORAGE_KEYS: {
-    USER_DATA: 'userData',
-    HEALTH_ENTRIES: 'healthEntries',
-    MEDICAL_REPORTS: 'medicalReports'
-  }
+  
 };
 
 // Global user state
 let currentUser = null;
+let db = null;
 
 // ============================================================================
 // FIREBASE AUTHENTICATION HELPERS
 // ============================================================================
 
 const FirebaseAuth = {
-  /**
-   * Check if user is authenticated
-   */
   isAuthenticated() {
     return firebase.auth().currentUser !== null;
   },
 
-  /**
-   * Get current user
-   */
   getCurrentUser() {
     return firebase.auth().currentUser;
   },
 
-  /**
-   * Sign up new user
-   */
   async signUp(email, password, username) {
     try {
       const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
       
-      // Update user profile with username
       await userCredential.user.updateProfile({
         displayName: username
       });
@@ -55,9 +42,6 @@ const FirebaseAuth = {
     }
   },
 
-  /**
-   * Sign in existing user
-   */
   async signIn(email, password) {
     try {
       const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
@@ -67,22 +51,15 @@ const FirebaseAuth = {
     }
   },
 
-  /**
-   * Sign out user
-   */
   async signOut() {
     try {
       await firebase.auth().signOut();
       currentUser = null;
-      localStorage.removeItem(CONFIG.STORAGE_KEYS.USER_DATA);
     } catch (error) {
       throw this.handleAuthError(error);
     }
   },
 
-  /**
-   * Handle Firebase authentication errors
-   */
   handleAuthError(error) {
     const errorMessages = {
       'auth/email-already-in-use': 'This email is already registered. Please sign in instead.',
@@ -97,11 +74,108 @@ const FirebaseAuth = {
     return new Error(errorMessages[error.code] || error.message);
   },
 
-  /**
-   * Listen to auth state changes
-   */
   onAuthStateChanged(callback) {
     return firebase.auth().onAuthStateChanged(callback);
+  }
+};
+
+// ============================================================================
+// AWS S3 HELPER
+// ============================================================================
+
+// ============================================================================
+// AWS S3 HELPER (Updated to use backend API)
+// ============================================================================
+
+const AWSS3 = {
+  async uploadFile(file, fileName) {
+    const formData = new FormData();
+    
+    // 1. Sanitize filename: Remove non-ASCII/special characters that cause SyntaxErrors in fetch
+    // This creates a safe string containing only alphanumeric characters, dots, and dashes
+    const safeFileName = fileName.replace(/[^a-z0-9.]/gi, '_').toLowerCase();
+
+    // 2. Build FormData correctly
+    // We use the 3-argument version of append to ensure the filename is explicitly set
+    formData.append('file', file, safeFileName);
+    formData.append('userId', currentUser.uid);
+    formData.append('fileName', safeFileName);
+
+    try {
+      // 3. Ensure API_BASE_URL is clean (no trailing spaces/slashes)
+      const uploadUrl = `${CONFIG.API_BASE_URL.replace(/\/$/, '')}/s3/upload`;
+
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        // NOTE: We DO NOT set 'Content-Type': 'multipart/form-data' here.
+        // The browser must set it automatically to include the boundary string.
+        body: formData
+      });
+
+      // Handle non-JSON responses (like 404s or server crashes)
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server responded with ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Upload failed');
+      }
+      
+      return data.url;
+    } catch (error) {
+      console.error('Upload Error:', error);
+      throw new Error('Failed to upload file: ' + error.message);
+    }
+  },
+
+  async deleteFile(fileName) {
+    try {
+      const safeFileName = fileName.replace(/[^a-z0-9.]/gi, '_').toLowerCase();
+      const deleteUrl = `${CONFIG.API_BASE_URL.replace(/\/$/, '')}/s3/delete`;
+
+      const response = await fetch(deleteUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.uid,
+          fileName: safeFileName
+        })
+      });
+
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Delete failed');
+      return true;
+    } catch (error) {
+      console.error('Delete Error:', error);
+      throw new Error('Failed to delete file: ' + error.message);
+    }
+  },
+
+  async getSignedUrl(fileName, expiresIn = 3600) {
+    try {
+      const safeFileName = fileName.replace(/[^a-z0-9.]/gi, '_').toLowerCase();
+      const signUrl = `${CONFIG.API_BASE_URL.replace(/\/$/, '')}/s3/get-signed-url`;
+
+      const response = await fetch(signUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.uid,
+          fileName: safeFileName,
+          expiresIn: expiresIn
+        })
+      });
+
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Failed to get URL');
+      return data.url;
+    } catch (error) {
+      console.error('Get URL Error:', error);
+      throw new Error('Failed to get signed URL: ' + error.message);
+    }
   }
 };
 
@@ -125,11 +199,6 @@ function loadUserData() {
     return currentUser;
   }
   return null;
-}
-
-function saveUserData(userData) {
-  localStorage.setItem(CONFIG.STORAGE_KEYS.USER_DATA, JSON.stringify(userData));
-  currentUser = userData;
 }
 
 function updateNavUsername() {
@@ -161,24 +230,6 @@ function formatDate(date) {
     month: 'long', 
     day: 'numeric' 
   });
-}
-
-// ============================================================================
-// AUTHENTICATION CHECK FOR PROTECTED PAGES (DEPRECATED - Using onAuthStateChanged instead)
-// ============================================================================
-
-// This function is now deprecated in favor of Firebase's onAuthStateChanged listener
-// Keeping it for backward compatibility but it's no longer actively used
-function checkAuth() {
-  if (window.location.pathname.includes('login_sign.html')) {
-    return;
-  }
-  
-  if (!isAuthenticated()) {
-    console.warn('User not authenticated');
-    return false;
-  }
-  return true;
 }
 
 // ============================================================================
@@ -438,11 +489,10 @@ const MainPage = {
 };
 
 // ============================================================================
-// HEALTH_TRACKER.HTML - DAILY HEALTH TRACKER
+// HEALTH_TRACKER.HTML - DAILY HEALTH TRACKER WITH FIRESTORE
 // ============================================================================
 
 const HealthTracker = {
-  healthEntries: [],
   elements: {},
 
   init() {
@@ -462,16 +512,26 @@ const HealthTracker = {
     this.bindEvents();
   },
 
-  loadEntries() {
-    const stored = localStorage.getItem(CONFIG.STORAGE_KEYS.HEALTH_ENTRIES);
-    if (stored) {
-      this.healthEntries = JSON.parse(stored);
-    }
-    this.renderEntries();
-  },
+  async loadEntries() {
+    if (!currentUser) return;
 
-  saveEntries() {
-    localStorage.setItem(CONFIG.STORAGE_KEYS.HEALTH_ENTRIES, JSON.stringify(this.healthEntries));
+    try {
+      const entriesRef = db.collection('healthEntries')
+        .where('userId', '==', currentUser.uid)
+        .orderBy('timestamp', 'desc');
+
+      const snapshot = await entriesRef.get();
+      const entries = [];
+
+      snapshot.forEach(doc => {
+        entries.push({ id: doc.id, ...doc.data() });
+      });
+
+      this.renderEntries(entries);
+    } catch (error) {
+      console.error('Error loading entries:', error);
+      this.showError('Failed to load health entries. Please refresh the page.');
+    }
   },
 
   bindEvents() {
@@ -479,26 +539,32 @@ const HealthTracker = {
 
     healthForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      this.saveEntry();
+    });
 
-      const entry = {
-        id: Date.now(),
-        date: document.getElementById('entryDate').value,
-        mood: document.getElementById('moodSelect').value,
-        sleep: document.getElementById('sleepQuality').value || 'Not specified',
-        water: document.getElementById('waterIntake').value || 'Not specified',
-        meals: document.getElementById('mealsInput').value || 'Not specified',
-        notes: document.getElementById('notesInput').value || 'No notes',
-        timestamp: new Date().toLocaleString()
-      };
+    window.deleteEntry = (id) => this.deleteEntry(id);
+  },
 
-      this.healthEntries.unshift(entry);
-      this.saveEntries();
-      this.renderEntries();
+  async saveEntry() {
+    const entry = {
+      userId: currentUser.uid,
+      date: document.getElementById('entryDate').value,
+      mood: document.getElementById('moodSelect').value,
+      sleep: document.getElementById('sleepQuality').value || 'Not specified',
+      water: document.getElementById('waterIntake').value || 'Not specified',
+      meals: document.getElementById('mealsInput').value || 'Not specified',
+      notes: document.getElementById('notesInput').value || 'No notes',
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      await db.collection('healthEntries').add(entry);
       
-      healthForm.reset();
+      this.elements.healthForm.reset();
       this.elements.entryDate.value = new Date().toISOString().split('T')[0];
 
-      const btn = healthForm.querySelector('.btn-submit');
+      const btn = this.elements.healthForm.querySelector('.btn-submit');
       const originalText = btn.innerHTML;
       btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> Saved!';
       btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
@@ -507,23 +573,30 @@ const HealthTracker = {
         btn.innerHTML = originalText;
         btn.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
       }, 2000);
-    });
 
-    window.deleteEntry = (id) => this.deleteEntry(id);
-  },
-
-  deleteEntry(id) {
-    if (confirm('Are you sure you want to delete this entry?')) {
-      this.healthEntries = this.healthEntries.filter(entry => entry.id !== id);
-      this.saveEntries();
-      this.renderEntries();
+      this.loadEntries();
+    } catch (error) {
+      console.error('Error saving entry:', error);
+      alert('Failed to save entry. Please try again.');
     }
   },
 
-  renderEntries() {
+  async deleteEntry(id) {
+    if (!confirm('Are you sure you want to delete this entry?')) return;
+
+    try {
+      await db.collection('healthEntries').doc(id).delete();
+      this.loadEntries();
+    } catch (error) {
+      console.error('Error deleting entry:', error);
+      alert('Failed to delete entry. Please try again.');
+    }
+  },
+
+  renderEntries(entries) {
     const { trackerEntries, entryCount } = this.elements;
 
-    if (this.healthEntries.length === 0) {
+    if (entries.length === 0) {
       trackerEntries.innerHTML = `
         <div class="empty-state">
           <i class="bi bi-inbox"></i>
@@ -534,9 +607,9 @@ const HealthTracker = {
       return;
     }
 
-    entryCount.textContent = `${this.healthEntries.length} ${this.healthEntries.length === 1 ? 'entry' : 'entries'}`;
+    entryCount.textContent = `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`;
 
-    trackerEntries.innerHTML = this.healthEntries.map(entry => `
+    trackerEntries.innerHTML = entries.map(entry => `
       <div class="entry-card">
         <div class="entry-header">
           <div>
@@ -544,9 +617,9 @@ const HealthTracker = {
               <i class="bi bi-calendar-check"></i>
               ${formatDate(entry.date)}
             </div>
-            <div class="entry-time">${entry.timestamp}</div>
+            <div class="entry-time">${new Date(entry.createdAt).toLocaleString()}</div>
           </div>
-          <button class="delete-btn" onclick="deleteEntry(${entry.id})">
+          <button class="delete-btn" onclick="deleteEntry('${entry.id}')">
             <i class="bi bi-trash"></i> Delete
           </button>
         </div>
@@ -578,17 +651,25 @@ const HealthTracker = {
         ` : ''}
       </div>
     `).join('');
+  },
+
+  showError(message) {
+    const { trackerEntries } = this.elements;
+    trackerEntries.innerHTML = `
+      <div class="empty-state" style="color: #ef4444;">
+        <i class="bi bi-exclamation-triangle"></i>
+        <p>${message}</p>
+      </div>
+    `;
   }
 };
 
 // ============================================================================
-// MEDICAL_REPORTS.HTML - MEDICAL REPORTS MANAGER
+// MEDICAL_REPORTS.HTML - MEDICAL REPORTS WITH AWS S3 & FIRESTORE
 // ============================================================================
 
 const MedicalReports = {
-  medicalReports: [],
   selectedFile: null,
-  selectedFileData: null,
   elements: {},
 
   init() {
@@ -619,16 +700,26 @@ const MedicalReports = {
     this.bindEvents();
   },
 
-  loadReports() {
-    const stored = localStorage.getItem(CONFIG.STORAGE_KEYS.MEDICAL_REPORTS);
-    if (stored) {
-      this.medicalReports = JSON.parse(stored);
-    }
-    this.renderReports();
-  },
+  async loadReports() {
+    if (!currentUser) return;
 
-  saveReports() {
-    localStorage.setItem(CONFIG.STORAGE_KEYS.MEDICAL_REPORTS, JSON.stringify(this.medicalReports));
+    try {
+      const reportsRef = db.collection('medicalReports')
+        .where('userId', '==', currentUser.uid)
+        .orderBy('timestamp', 'desc');
+
+      const snapshot = await reportsRef.get();
+      const reports = [];
+
+      snapshot.forEach(doc => {
+        reports.push({ id: doc.id, ...doc.data() });
+      });
+
+      this.renderReports(reports);
+    } catch (error) {
+      console.error('Error loading reports:', error);
+      this.showError('Failed to load medical reports. Please refresh the page.');
+    }
   },
 
   bindEvents() {
@@ -662,7 +753,6 @@ const MedicalReports = {
 
     previewClose.addEventListener('click', () => {
       this.selectedFile = null;
-      this.selectedFileData = null;
       this.elements.previewSection.style.display = 'none';
       fileInput.value = '';
       this.validateForm();
@@ -698,8 +788,7 @@ const MedicalReports = {
     this.selectedFile = file;
     const reader = new FileReader();
     reader.onload = e => {
-      this.selectedFileData = e.target.result;
-      this.elements.previewImage.src = this.selectedFileData;
+      this.elements.previewImage.src = e.target.result;
       this.elements.previewSection.style.display = 'block';
       this.validateForm();
     };
@@ -710,43 +799,73 @@ const MedicalReports = {
     this.elements.uploadBtn.disabled = !(this.selectedFile && this.elements.reportTitle.value.trim());
   },
 
-  handleUpload(e) {
-    e.preventDefault();
+  async handleUpload(e) {
+  e.preventDefault();
+  
+  const btn = this.elements.uploadBtn;
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Uploading...';
+  btn.disabled = true;
+
+  try {
+    const timestamp = Date.now();
+    const fileExtension = this.selectedFile.name.split('.').pop();
+    // Create a clean filename with only safe characters
+    const cleanFileName = `${timestamp}.${fileExtension}`;
+
+    console.log('Uploading file:', cleanFileName);
+
+    // Upload to S3 via backend
+    const s3Response = await AWSS3.uploadFile(this.selectedFile, cleanFileName);
     
-    const report = {
-      id: Date.now(),
+    console.log('S3 Upload response:', s3Response);
+
+    // Save metadata to Firestore
+    const reportData = {
+      userId: currentUser.uid,
       title: this.elements.reportTitle.value.trim(),
       notes: this.elements.reportNotes.value.trim(),
-      image: this.selectedFileData,
-      fileName: this.selectedFile.name,
+      fileName: cleanFileName,
+      s3Url: s3Response, // This is just the URL string
       uploadDate: new Date().toLocaleString(),
-      timestamp: Date.now()
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      createdAt: new Date().toISOString()
     };
 
-    this.medicalReports.unshift(report);
-    this.saveReports();
-    this.renderReports();
-    
+    console.log('Saving to Firestore:', reportData);
+
+    await db.collection('medicalReports').add(reportData);
+
+    // Reset form
     this.elements.uploadForm.reset();
     this.selectedFile = null;
-    this.selectedFileData = null;
     this.elements.previewSection.style.display = 'none';
-    this.elements.uploadBtn.disabled = true;
+    this.elements.fileInput.value = '';
 
-    const btn = this.elements.uploadBtn;
-    const originalText = btn.innerHTML;
+    // Success feedback
     btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> Uploaded!';
     btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+    
     setTimeout(() => {
       btn.innerHTML = originalText;
       btn.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+      this.validateForm();
     }, 2000);
-  },
 
-  renderReports() {
+    this.loadReports();
+  } catch (error) {
+    console.error('Error uploading report:', error);
+    alert('Failed to upload report: ' + error.message);
+    btn.innerHTML = originalText;
+    btn.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+    this.validateForm();
+  }
+},
+
+  renderReports(reports) {
     const { reportsGrid, reportCount } = this.elements;
 
-    if (this.medicalReports.length === 0) {
+    if (reports.length === 0) {
       reportsGrid.innerHTML = `
         <div class="empty-state">
           <i class="bi bi-folder-x"></i>
@@ -756,12 +875,14 @@ const MedicalReports = {
       return;
     }
 
-    reportCount.textContent = `${this.medicalReports.length} ${this.medicalReports.length === 1 ? 'report' : 'reports'}`;
+    reportCount.textContent = `${reports.length} ${reports.length === 1 ? 'report' : 'reports'}`;
     
-    reportsGrid.innerHTML = this.medicalReports.map(r => `
+    reportsGrid.innerHTML = reports.map(r => `
       <div class="report-card">
-        <div class="report-image-container" onclick="viewReport(${r.id})">
-          <img src="${r.image}" alt="${r.title}" class="report-image" />
+        <div class="report-image-container" onclick="viewReport('${r.id}')">
+          <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,0.1);">
+            <i class="bi bi-file-earmark-medical" style="font-size:3rem;color:#3b82f6;"></i>
+          </div>
         </div>
         <div class="report-info">
           <div class="report-title">${r.title}</div>
@@ -769,10 +890,10 @@ const MedicalReports = {
             <span><i class="bi bi-calendar3"></i> ${r.uploadDate}</span>
           </div>
           <div class="report-actions">
-            <button class="btn-action" onclick="viewReport(${r.id})">
+            <button class="btn-action" onclick="viewReport('${r.id}')">
               <i class="bi bi-eye"></i> View
             </button>
-            <button class="btn-action delete" onclick="deleteReport(${r.id})">
+            <button class="btn-action delete" onclick="deleteReport('${r.id}')">
               <i class="bi bi-trash"></i> Delete
             </button>
           </div>
@@ -781,14 +902,24 @@ const MedicalReports = {
     `).join('');
   },
 
-  viewReport(id) {
-    const report = this.medicalReports.find(r => r.id === id);
-    if (!report) return;
+  async viewReport(id) {
+  try {
+    const doc = await db.collection('medicalReports').doc(id).get();
+    
+    if (!doc.exists) {
+      alert('Report not found');
+      return;
+    }
 
+    const report = doc.data();
     const { viewModal, modalTitle, modalImage, modalDate, modalNotes, modalNotesRow } = this.elements;
     
     modalTitle.textContent = report.title;
-    modalImage.src = report.image;
+    
+    // FIX: Added 'await' here to get the actual URL string
+    const signedUrl = await AWSS3.getSignedUrl(report.fileName);
+    modalImage.src = signedUrl;
+    
     modalDate.textContent = report.uploadDate;
     
     if (report.notes) {
@@ -799,14 +930,44 @@ const MedicalReports = {
     }
     
     viewModal.style.display = 'flex';
+  } catch (error) {
+    console.error('Error viewing report:', error);
+    alert('Failed to load report: ' + error.message);
+  }
+},
+
+  async deleteReport(id) {
+    if (!confirm('Are you sure you want to delete this report?')) return;
+
+    try {
+      const doc = await db.collection('medicalReports').doc(id).get();
+      
+      if (!doc.exists) {
+        alert('Report not found');
+        return;
+      }
+
+      const report = doc.data();
+
+      await AWSS3.deleteFile(report.fileName);
+
+      await db.collection('medicalReports').doc(id).delete();
+
+      this.loadReports();
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      alert('Failed to delete report. Please try again.');
+    }
   },
 
-  deleteReport(id) {
-    if (confirm('Are you sure you want to delete this report?')) {
-      this.medicalReports = this.medicalReports.filter(r => r.id !== id);
-      this.saveReports();
-      this.renderReports();
-    }
+  showError(message) {
+    const { reportsGrid } = this.elements;
+    reportsGrid.innerHTML = `
+      <div class="empty-state" style="color: #ef4444;">
+        <i class="bi bi-exclamation-triangle"></i>
+        <p>${message}</p>
+      </div>
+    `;
   }
 };
 
@@ -845,7 +1006,6 @@ const LoginPage = {
   },
 
   checkExistingAuth() {
-    // If user is already logged in, redirect to main page
     if (FirebaseAuth.isAuthenticated()) {
       window.location.href = 'main.html';
     }
@@ -952,22 +1112,7 @@ const LoginPage = {
     submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Signing in...';
 
     try {
-      // Firebase sign in
-      const user = await FirebaseAuth.signIn(email, password);
-      
-      // Create user data object
-      const userData = {
-        uid: user.uid,
-        username: user.displayName || email.split('@')[0],
-        email: user.email,
-        fullName: user.displayName || email.split('@')[0],
-        memberSince: new Date(user.metadata.creationTime).toLocaleDateString('en-US', { 
-          month: 'long', 
-          year: 'numeric' 
-        })
-      };
-
-      saveUserData(userData);
+      await FirebaseAuth.signIn(email, password);
       
       this.showAlert(loginAlert, 'Login successful! Redirecting...', true);
       
@@ -1019,24 +1164,9 @@ const LoginPage = {
     submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating account...';
 
     try {
-      // Firebase sign up
-      const user = await FirebaseAuth.signUp(email, password, username);
+      await FirebaseAuth.signUp(email, password, username);
       
       this.showAlert(signupAlert, 'Account created successfully! Redirecting...', true);
-      
-      // Auto login after signup
-      const userData = {
-        uid: user.uid,
-        username: username,
-        email: user.email,
-        fullName: username,
-        memberSince: new Date().toLocaleDateString('en-US', { 
-          month: 'long', 
-          year: 'numeric' 
-        })
-      };
-
-      saveUserData(userData);
 
       setTimeout(() => {
         window.location.href = 'main.html';
@@ -1131,17 +1261,14 @@ const ProfilePage = {
       }
 
       try {
-        // Update Firebase user profile
         const user = FirebaseAuth.getCurrentUser();
         await user.updateProfile({
           displayName: newUsername
         });
 
-        // Update local user data
         currentUser.username = newUsername;
         currentUser.fullName = newUsername;
         
-        saveUserData(currentUser);
         this.loadProfile();
 
         editMode.style.display = 'none';
@@ -1177,14 +1304,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Set up Firebase auth state listener
   FirebaseAuth.onAuthStateChanged((user) => {
-    if (authCheckComplete) return; // Prevent multiple initializations
+    if (authCheckComplete) return;
     authCheckComplete = true;
 
     if (user) {
-      // User is authenticated
       console.log('User is signed in:', user.email);
       loadUserData();
       updateNavUsername();
+
+      // Initialize Firestore
+      db = firebase.firestore();
+
+      // Initialize AWS S3 (only for medical reports page)
+      // if (document.getElementById('uploadForm')) {
+      //   AWSS3.initialize();
+      // }
 
       // Initialize page-specific modules
       MainPage.init();
@@ -1192,10 +1326,9 @@ document.addEventListener('DOMContentLoaded', () => {
       MedicalReports.init();
       ProfilePage.init();
 
-      console.log('Health AI Application Initialized with Firebase');
+      console.log('Health AI Application Initialized with Firebase & AWS S3');
       console.log('Current User:', currentUser);
     } else {
-      // User is NOT authenticated - redirect to login
       console.log('User is not signed in');
       alert('Please sign in to access this page.');
       window.location.href = 'login_sign.html';
